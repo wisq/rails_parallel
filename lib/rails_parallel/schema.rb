@@ -27,20 +27,22 @@ module RailsParallel
     end
 
     def load_db(number)
+      config = ActiveRecord::Base.configurations[Rails.env]
       update_db_config(number)
       return false if schema_loaded?
 
-      #schema_load(database, schema)
       schema_load(@dbconfig['database'], @file)
 
       #could add another key to the db config, pointing to the schema sql..
 
       # do the same for all the shards
-      #@shard_entries.each do |shard_name|
-        #schema_load(shard_name, shard_schema)
-      #end
-      
+      @shard_entries.each do |shard_name|
+        schema_load(config[shard_name]['database'], Rails.root + config[shard_name]['schema'])
+      end
+
       true
+    ensure
+      reconnect
     end
 
     private
@@ -57,11 +59,11 @@ module RailsParallel
       # once per worker on init
 
       config['database'] += "_#{number}" unless number == 1
-      
+
       # also add entries for all the shards
       @shard_entries = config.keys.grep(/shard/)
-      
-      shard_entries.each do |shard_name|
+
+      @shard_entries.each do |shard_name|
         config[shard_name]['database'] += "_#{number}" unless number == 1
       end
       # shopify_dev_6
@@ -86,19 +88,21 @@ module RailsParallel
         wait_for(pid)
       end
 
-      reconnect
+      reconnect(:database => dbname)
       sm_table = ActiveRecord::Migrator.schema_migrations_table_name
-      ActiveRecord::Base.connection.execute("INSERT INTO #{sm_table} (version) VALUES ('#{schema}')")
+      ActiveRecord::Base.connection.execute("INSERT INTO #{sm_table} (version) VALUES ('#{@file}')")
     end
 
     def schema_loaded?
-      reconnect
-
-      sm_table = ActiveRecord::Migrator.schema_migrations_table_name
-      migrated = ActiveRecord::Base.connection.select_values("SELECT version FROM #{sm_table}")
-      migrated.include?(@file)
+      shard_dbs = @shard_entries.map { |s| @dbconfig[s]['database'] }
+      ([@dbconfig['database']]+shard_dbs).all? do |db_name|
+        reconnect(:database => db_name)
+        sm_table = ActiveRecord::Migrator.schema_migrations_table_name
+        migrated = ActiveRecord::Base.connection.select_values("SELECT version FROM #{sm_table}")
+        migrated.include?(@file)
+      end
     rescue
-      return false
+      false
     end
   end
 end
