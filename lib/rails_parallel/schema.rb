@@ -27,17 +27,13 @@ module RailsParallel
     end
 
     def load_db(number)
-      config = ActiveRecord::Base.configurations[Rails.env]
       update_db_config(number)
       return false if schema_loaded?
 
       schema_load(@dbconfig['database'], @file)
 
-      #could add another key to the db config, pointing to the schema sql..
-
-      # do the same for all the shards
       @shard_entries.each do |shard_name|
-        schema_load(config[shard_name]['database'], Rails.root + config[shard_name]['schema'])
+        schema_load(@dbconfig[shard_name]['database'], Rails.root + @dbconfig[shard_name]['schema'])
       end
 
       true
@@ -55,20 +51,13 @@ module RailsParallel
 
     def update_db_config(number)
       config = ActiveRecord::Base.configurations[Rails.env]
-
-      # once per worker on init
-
       config['database'] += "_#{number}" unless number == 1
 
-      # also add entries for all the shards
       @shard_entries = config.keys.grep(/shard/)
 
       @shard_entries.each do |shard_name|
         config[shard_name]['database'] += "_#{number}" unless number == 1
       end
-      # shopify_dev_6
-      # shopify_dev_shard_a_6
-      # shopify_dev_shard_b_6
 
       @dbconfig = config.with_indifferent_access
     end
