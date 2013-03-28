@@ -30,7 +30,16 @@ module RailsParallel
       update_db_config(number)
       return false if schema_loaded?
 
-      schema_load
+      #schema_load(database, schema)
+      schema_load(@dbconfig['database'], @file)
+
+      #could add another key to the db config, pointing to the schema sql..
+
+      # do the same for all the shards
+      #@shard_entries.each do |shard_name|
+        #schema_load(shard_name, shard_schema)
+      #end
+      
       true
     end
 
@@ -44,19 +53,32 @@ module RailsParallel
 
     def update_db_config(number)
       config = ActiveRecord::Base.configurations[Rails.env]
+
+      # once per worker on init
+
       config['database'] += "_#{number}" unless number == 1
+      
+      # also add entries for all the shards
+      @shard_entries = config.keys.grep(/shard/)
+      
+      shard_entries.each do |shard_name|
+        config[shard_name]['database'] += "_#{number}" unless number == 1
+      end
+      # shopify_dev_6
+      # shopify_dev_shard_a_6
+      # shopify_dev_shard_b_6
+
       @dbconfig = config.with_indifferent_access
     end
 
-    def schema_load
-      dbname = @dbconfig[:database]
+    def schema_load(dbname, schema)
       mysql_args = ['-u', 'root']
 
       connection = reconnect(:database => nil)
       connection.drop_database(dbname) rescue nil
       connection.create_database(dbname)
 
-      File.open(@file) do |fh|
+      File.open(schema) do |fh|
         pid = fork do
           STDIN.reopen(fh)
           exec(*['mysql', mysql_args, dbname].flatten)
@@ -66,7 +88,7 @@ module RailsParallel
 
       reconnect
       sm_table = ActiveRecord::Migrator.schema_migrations_table_name
-      ActiveRecord::Base.connection.execute("INSERT INTO #{sm_table} (version) VALUES ('#{@file}')")
+      ActiveRecord::Base.connection.execute("INSERT INTO #{sm_table} (version) VALUES ('#{schema}')")
     end
 
     def schema_loaded?
