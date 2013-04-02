@@ -28,7 +28,6 @@ module RailsParallel
 
     def load_db(number)
       update_db_config(number)
-      return false if schema_loaded?
 
       schema_load(@dbconfig['database'], @file)
 
@@ -63,6 +62,10 @@ module RailsParallel
     end
 
     def schema_load(dbname, schema)
+      hash = Digest::MD5.file(schema).hexdigest
+
+      return if schema_loaded?(dbname, hash)
+
       mysql_args = ['-u', 'root']
 
       connection = reconnect(:database => nil)
@@ -79,17 +82,15 @@ module RailsParallel
 
       reconnect(:database => dbname)
       sm_table = ActiveRecord::Migrator.schema_migrations_table_name
-      ActiveRecord::Base.connection.execute("INSERT INTO #{sm_table} (version) VALUES ('#{@file}')")
+
+      ActiveRecord::Base.connection.execute("INSERT INTO #{sm_table} (version) VALUES ('#{hash}')")
     end
 
-    def schema_loaded?
-      shard_dbs = @shard_entries.map { |s| @dbconfig[s]['database'] }
-      ([@dbconfig['database']]+shard_dbs).all? do |db_name|
-        reconnect(:database => db_name)
-        sm_table = ActiveRecord::Migrator.schema_migrations_table_name
-        migrated = ActiveRecord::Base.connection.select_values("SELECT version FROM #{sm_table}")
-        migrated.include?(@file)
-      end
+    def schema_loaded?(dbname, hash)
+      reconnect(:database => dbname)
+      sm_table = ActiveRecord::Migrator.schema_migrations_table_name
+      migrated = ActiveRecord::Base.connection.select_values("SELECT version FROM #{sm_table}")
+      migrated.include?(hash)
     rescue
       false
     end
