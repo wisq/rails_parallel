@@ -29,13 +29,11 @@ module RailsParallel
     def load_db(number)
       update_db_config(number)
 
-      schema_load(@dbconfig['database'], @file)
-
       @shard_entries.each do |shard_name|
         schema_load(@dbconfig[shard_name]['database'], Rails.root + @dbconfig[shard_name]['schema'])
       end
 
-      true
+      schema_load(@dbconfig['database'], @file)
     ensure
       reconnect
     end
@@ -64,7 +62,7 @@ module RailsParallel
     def schema_load(dbname, schema)
       hash = Digest::MD5.file(schema).hexdigest
 
-      return if schema_loaded?(dbname, hash)
+      return false if schema_loaded?(dbname, hash)
 
       mysql_args = ['-u', 'root']
 
@@ -84,6 +82,7 @@ module RailsParallel
       sm_table = ActiveRecord::Migrator.schema_migrations_table_name
 
       ActiveRecord::Base.connection.execute("INSERT INTO #{sm_table} (version) VALUES ('#{hash}')")
+      true
     end
 
     def schema_loaded?(dbname, hash)
